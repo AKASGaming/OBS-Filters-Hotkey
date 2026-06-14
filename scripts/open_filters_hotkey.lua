@@ -5,6 +5,65 @@ local obs = obslua
 local bit = require("bit")
 
 local HOTKEY_PREFIX = "open_filters;"
+local VST_FILTER_ID = "vst_filter"
+local VST_OPEN_BUTTON = "open_vst_settings"
+
+local TARGET_FILTERS_WINDOW = "filters_window"
+local TARGET_VST_INTERFACE = "vst_interface"
+
+local function filter_name_matches(desired, actual)
+  if desired == nil or desired == "" then
+    return true
+  end
+  return actual == desired
+end
+
+local function open_vst_interface(parent, filter_name)
+  local filters = obs.obs_source_enum_filters(parent)
+  if filters == nil then
+    return false
+  end
+
+  for _, f in ipairs(filters) do
+    local id = obs.obs_source_get_id(f)
+    local name = obs.obs_source_get_name(f)
+    if id == VST_FILTER_ID and filter_name_matches(filter_name, name) then
+      local props = obs.obs_source_properties(f)
+      if props then
+        local btn = obs.obs_properties_get(props, VST_OPEN_BUTTON)
+        if btn and obs.obs_property_button_clicked(btn, f) then
+          obs.obs_properties_destroy(props)
+          obs.source_list_release(filters)
+          return true
+        end
+        obs.obs_properties_destroy(props)
+      end
+    end
+  end
+
+  obs.source_list_release(filters)
+  return false
+end
+
+local function open_target(parent, settings)
+  if parent == nil then
+    return
+  end
+
+  local target = obs.obs_data_get_string(settings, "target")
+  if target == nil or target == "" then
+    target = TARGET_FILTERS_WINDOW
+  end
+
+  if target == TARGET_VST_INTERFACE then
+    local filter_name = obs.obs_data_get_string(settings, "filter_name")
+    if open_vst_interface(parent, filter_name) then
+      return
+    end
+  end
+
+  obs.obs_frontend_open_source_filters(parent)
+end
 
 local function register_hotkey(filter, settings)
   if filter.created_hotkeys then
@@ -29,8 +88,8 @@ local function register_hotkey(filter, settings)
     filter.hotkey_name,
     "Open Filters (" .. source_name .. ")",
     function(pressed)
-      if pressed and filter.target then
-        obs.obs_frontend_open_source_filters(filter.target)
+      if pressed and filter.target and filter.loaded_settings then
+        open_target(filter.target, filter.loaded_settings)
       end
     end
   )
@@ -63,11 +122,33 @@ local function make_filter_info(id, output_flags)
     return filter
   end
 
+  info.update = function(filter, settings)
+    filter.loaded_settings = settings
+  end
+
   info.destroy = function(filter)
   end
 
   info.get_properties = function(unused)
     local props = obs.obs_properties_create()
+
+    local target = obs.obs_properties_add_list(
+      props,
+      "target",
+      "Open target",
+      obs.OBS_COMBO_TYPE_LIST,
+      obs.OBS_COMBO_FORMAT_STRING
+    )
+    obs.obs_property_list_add_string(target, "Filters window", TARGET_FILTERS_WINDOW)
+    obs.obs_property_list_add_string(target, "VST plugin interface", TARGET_VST_INTERFACE)
+
+    obs.obs_properties_add_text(
+      props,
+      "filter_name",
+      "Filter name (optional — use when multiple VST filters exist)",
+      obs.OBS_TEXT_DEFAULT
+    )
+
     obs.obs_properties_add_text(
       props,
       "info",
@@ -85,8 +166,6 @@ local function make_filter_info(id, output_flags)
     end
   end
 
-  -- Deferred registration: filter_add is unreliable for Lua-registered filters.
-  -- video_tick fires for audio filters; video_render fires for video filters.
   info.video_tick = function(filter, seconds)
     register_hotkey(filter, filter.loaded_settings)
   end
@@ -108,7 +187,7 @@ local function make_filter_info(id, output_flags)
 end
 
 function script_description()
-  return [[Add the "Open Filters Hotkey" filter to any source, then bind a key under Settings → Hotkeys (search "Open Filters").]]
+  return [[Add the "Open Filters Hotkey" filter to any source, then bind a key under Settings → Hotkeys. Set the target to "VST plugin interface" to open a VST 2.x filter's GUI directly.]]
 end
 
 obs.obs_register_source(make_filter_info("open_filters_hotkey_audio_lua", obs.OBS_SOURCE_AUDIO))

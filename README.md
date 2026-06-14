@@ -61,6 +61,19 @@ See the [OBS plugin template wiki](https://github.com/obsproject/obs-plugintempl
 
 The filter is a pass-through — it does not modify audio or video. You can add one instance per source; each gets its own hotkey binding.
 
+### Open a VST plugin interface directly
+
+OBS has no public API to open a specific filter's settings panel, but VST 2.x filters expose an **Open Plug-In Interface** button that can be triggered programmatically.
+
+1. Add **Open Filters Hotkey** to your source (e.g. mic).
+2. In the filter settings, set **Open target** to **VST plugin interface**.
+3. If you have multiple VST filters on the same source, enter the filter's display name under **Filter name**.
+4. Bind your hotkey in **Settings → Hotkeys**.
+
+Pressing the hotkey opens the VST GUI directly — no need to navigate the filters window first. If no matching VST filter is found, it falls back to opening the filters window.
+
+**Note:** The VST must already be loaded (a plugin selected in the VST filter dropdown). This works with OBS's built-in **VST 2.x Plug-in** filter only, not VST3 hosts like atkAudio.
+
 ## Example
 
 | Source        | Hotkey | Action                          |

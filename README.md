@@ -16,7 +16,21 @@ Open a source's filter list with a keyboard shortcut. For example, press **Q** t
 
 The compiled plugin provides the same behavior with better integration. Filter names appear as **Open Filters Hotkey** in the filter list.
 
-### Build (Windows)
+### Download pre-built plugin
+
+Every push to `master` triggers a GitHub Actions build. Download the latest native plugin from either:
+
+- **[Nightly release](https://github.com/AKASGaming/OBS-Filters-Hotkey/releases/tag/nightly)** — Windows `.zip` (and Linux/macOS when those builds succeed)
+- **Actions → latest workflow run → Artifacts** — platform-specific packages
+
+Install on Windows:
+
+1. Download `obs-filters-hotkey-*-windows-x64.zip` from the nightly release.
+2. Extract and copy `obs-filters-hotkey.dll` to `%ProgramFiles%\obs-studio\obs-plugins\64bit\`
+3. Copy the `obs-filters-hotkey` folder to `%ProgramFiles%\obs-studio\data\obs-plugins\obs-filters-hotkey\`
+4. Restart OBS.
+
+### Build from source (Windows)
 
 Requires [CMake 3.28+](https://cmake.org/download/) and Visual Studio 2022.
 

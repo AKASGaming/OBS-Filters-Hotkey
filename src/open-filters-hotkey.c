@@ -11,12 +11,16 @@ the Free Software Foundation; either version 2 of the License, or
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 #include <util/platform.h>
+#include <util/dstr.h>
 
-#define HOTKEY_ID "OpenFiltersHotkey"
+#define HOTKEY_PREFIX "open_filters;"
 
 struct open_filters_data {
 	obs_source_t *context;
+	obs_source_t *target;
 	obs_hotkey_id hotkey_id;
+	char *hotkey_name;
+	bool hotkey_registered;
 };
 
 static const char *open_filters_get_name(void *unused)
@@ -34,46 +38,80 @@ static void open_filters_hotkey_pressed(void *data, obs_hotkey_id id, obs_hotkey
 		return;
 
 	struct open_filters_data *filter = data;
+	if (filter->target)
+		obs_frontend_open_source_filters(filter->target);
+}
+
+static void register_open_filters_hotkey(struct open_filters_data *filter, obs_data_t *settings)
+{
+	if (!filter || filter->hotkey_registered)
+		return;
+
 	obs_source_t *parent = obs_filter_get_parent(filter->context);
 	if (!parent)
 		return;
 
-	obs_frontend_open_source_filters(parent);
-}
-
-static void register_open_filters_hotkey(struct open_filters_data *filter, obs_source_t *parent)
-{
-	if (!filter || filter->hotkey_id != OBS_INVALID_HOTKEY_ID)
+	const char *parent_name = obs_source_get_name(parent);
+	const char *parent_uuid = obs_source_get_uuid(parent);
+	if (!parent_name || !parent_uuid)
 		return;
 
-	const char *parent_name = obs_source_get_name(parent);
-	char description[256];
-	snprintf(description, sizeof(description), "%s (%s)", obs_module_text("OpenFiltersHotkeyAction"),
-		   parent_name ? parent_name : "?");
+	filter->target = parent;
 
-	filter->hotkey_id = obs_hotkey_register_source(filter->context, HOTKEY_ID, description,
-						       open_filters_hotkey_pressed, filter);
+	struct dstr hotkey_name = {0};
+	struct dstr description = {0};
+	dstr_printf(&hotkey_name, "%s%s", HOTKEY_PREFIX, parent_uuid);
+	dstr_printf(&description, "%s (%s)", obs_module_text("OpenFiltersHotkeyAction"), parent_name);
+
+	filter->hotkey_id = obs_hotkey_register_frontend(hotkey_name.array, description.array,
+							 open_filters_hotkey_pressed, filter);
+
+	obs_data_array_t *saved = obs_data_get_array(settings, hotkey_name.array);
+	obs_hotkey_load(filter->hotkey_id, saved);
+	obs_data_array_release(saved);
+
+	filter->hotkey_name = bstrdup(hotkey_name.array);
+	filter->hotkey_registered = true;
+
+	dstr_free(&hotkey_name);
+	dstr_free(&description);
 }
 
 static void *open_filters_create(obs_data_t *settings, obs_source_t *source)
 {
-	UNUSED_PARAMETER(settings);
-
 	struct open_filters_data *filter = bzalloc(sizeof(*filter));
 	filter->context = source;
 	filter->hotkey_id = OBS_INVALID_HOTKEY_ID;
+	filter->hotkey_registered = false;
+	register_open_filters_hotkey(filter, settings);
 	return filter;
 }
 
 static void open_filters_destroy(void *data)
 {
 	struct open_filters_data *filter = data;
+	bfree(filter->hotkey_name);
 	bfree(filter);
 }
 
-static void open_filters_filter_add(void *data, obs_source_t *parent)
+static void open_filters_save(void *data, obs_data_t *settings)
 {
-	register_open_filters_hotkey(data, parent);
+	struct open_filters_data *filter = data;
+	if (!filter->hotkey_registered || filter->hotkey_id == OBS_INVALID_HOTKEY_ID || !filter->hotkey_name)
+		return;
+
+	obs_data_array_t *saved = obs_hotkey_save(filter->hotkey_id);
+	obs_data_set_array(settings, filter->hotkey_name, saved);
+	obs_data_array_release(saved);
+}
+
+static void open_filters_video_tick(void *data, float seconds)
+{
+	UNUSED_PARAMETER(seconds);
+
+	struct open_filters_data *filter = data;
+	if (!filter->hotkey_registered)
+		register_open_filters_hotkey(filter, obs_source_get_settings(filter->context));
 }
 
 static obs_properties_t *open_filters_properties(void *unused)
@@ -96,6 +134,8 @@ static void open_filters_video_render(void *data, gs_effect_t *effect)
 	UNUSED_PARAMETER(effect);
 
 	struct open_filters_data *filter = data;
+	if (!filter->hotkey_registered)
+		register_open_filters_hotkey(filter, obs_source_get_settings(filter->context));
 	obs_source_skip_video_filter(filter->context);
 }
 
@@ -106,7 +146,8 @@ struct obs_source_info open_filters_hotkey_audio = {
 	.get_name = open_filters_get_name,
 	.create = open_filters_create,
 	.destroy = open_filters_destroy,
-	.filter_add = open_filters_filter_add,
+	.save = open_filters_save,
+	.video_tick = open_filters_video_tick,
 	.filter_audio = open_filters_filter_audio,
 	.get_properties = open_filters_properties,
 };
@@ -118,7 +159,7 @@ struct obs_source_info open_filters_hotkey_video = {
 	.get_name = open_filters_get_name,
 	.create = open_filters_create,
 	.destroy = open_filters_destroy,
-	.filter_add = open_filters_filter_add,
+	.save = open_filters_save,
 	.video_render = open_filters_video_render,
 	.get_properties = open_filters_properties,
 };

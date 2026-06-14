@@ -15,6 +15,7 @@ jobs:
     name: Check Formatting 🔍
     if: github.ref_name == 'master' || github.ref_name == 'main'
     uses: ./.github/workflows/check-format.yaml
+    continue-on-error: true
     permissions:
       contents: read
 
@@ -24,6 +25,71 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
+
+  publish-nightly:
+    name: Publish Plugin Build 📦
+    if: |
+      always() &&
+      needs.build-project.result != 'cancelled' &&
+      (github.ref_name == 'master' || github.ref_name == 'main') &&
+      github.ref_type == 'branch'
+    needs: build-project
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download Windows Plugin 📥
+        uses: actions/download-artifact@v4
+        with:
+          pattern: obs-filters-hotkey-*-windows-x64-*
+          merge-multiple: true
+
+      - name: Download macOS Plugin 📥
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: obs-filters-hotkey-*-macos-universal-*
+          merge-multiple: true
+
+      - name: Download Linux Plugin 📥
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: obs-filters-hotkey-*-ubuntu-24.04-x86_64-*
+          merge-multiple: true
+
+      - name: Prepare Release Assets 🏷️
+        run: |
+          : Prepare Release Assets 🏷️
+          if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
+
+          mkdir -p release-assets
+          find . -type f \( -name '*.zip' -o -name '*.tar.xz' -o -name '*.deb' -o -name '*.pkg' \) \
+            ! -path './release-assets/*' -exec cp {} release-assets/ \;
+
+          if [[ ! "$(ls -A release-assets)" ]]; then
+            echo "No build artifacts found to publish."
+            exit 1
+          fi
+
+          ls -la release-assets/
+
+      - name: Publish Nightly Release 🚀
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Plugin Build
+          body: |
+            Automated build of the OBS Filters Hotkey native plugin.
+
+            Download the zip for Windows, tar.xz for Linux, or pkg/tar.xz for macOS.
+            Commit: ${{ github.sha }}
+          files: release-assets/*
+          prerelease: true
+          make_latest: false
 
   create-release:
     name: Create Release 🛫

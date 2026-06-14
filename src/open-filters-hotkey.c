@@ -89,8 +89,7 @@ static void open_target(struct open_filters_data *filter)
 	if (!filter->target)
 		return;
 
-	const char *target = filter->target_mode && *filter->target_mode ? filter->target_mode
-									  : TARGET_FILTERS_WINDOW;
+	const char *target = filter->target_mode && *filter->target_mode ? filter->target_mode : TARGET_FILTERS_WINDOW;
 
 	if (strcmp(target, TARGET_VST_INTERFACE) == 0) {
 		if (open_vst_interface(filter->target, filter->filter_name))
@@ -145,8 +144,8 @@ static void register_open_filters_hotkey(struct open_filters_data *filter, obs_d
 	dstr_printf(&hotkey_name, "%s%s", HOTKEY_PREFIX, parent_uuid);
 	dstr_printf(&description, "%s (%s)", obs_module_text("OpenFiltersHotkeyAction"), parent_name);
 
-	filter->hotkey_id = obs_hotkey_register_frontend(hotkey_name.array, description.array,
-							 open_filters_hotkey_pressed, filter);
+	filter->hotkey_id =
+		obs_hotkey_register_frontend(hotkey_name.array, description.array, open_filters_hotkey_pressed, filter);
 
 	obs_data_array_t *saved = obs_data_get_array(settings, hotkey_name.array);
 	obs_hotkey_load(filter->hotkey_id, saved);
@@ -215,8 +214,7 @@ static obs_properties_t *open_filters_properties(void *unused)
 	obs_property_list_add_string(target, obs_module_text("OpenFiltersTargetWindow"), TARGET_FILTERS_WINDOW);
 	obs_property_list_add_string(target, obs_module_text("OpenFiltersTargetVst"), TARGET_VST_INTERFACE);
 
-	obs_properties_add_text(props, SETTING_FILTER_NAME, obs_module_text("OpenFiltersFilterName"),
-				  OBS_TEXT_DEFAULT);
+	obs_properties_add_text(props, SETTING_FILTER_NAME, obs_module_text("OpenFiltersFilterName"), OBS_TEXT_DEFAULT);
 	obs_properties_add_text(props, "info", obs_module_text("OpenFiltersHotkeyInfo"), OBS_TEXT_INFO);
 	return props;
 }

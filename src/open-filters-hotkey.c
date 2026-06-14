@@ -51,26 +51,30 @@ static bool filter_name_matches(const char *desired, const char *actual)
 	return actual && strcmp(desired, actual) == 0;
 }
 
-static bool enum_vst_filter(obs_source_t *source, void *param)
+static void enum_vst_filter(obs_source_t *parent, obs_source_t *source, void *param)
 {
 	struct vst_enum_data *data = param;
 
+	UNUSED_PARAMETER(parent);
+
+	if (data->opened)
+		return;
+
 	if (strcmp(obs_source_get_id(source), VST_FILTER_ID) != 0)
-		return true;
+		return;
 
 	if (!filter_name_matches(data->filter_name, obs_source_get_name(source)))
-		return true;
+		return;
 
 	obs_properties_t *props = obs_source_properties(source);
 	if (!props)
-		return true;
+		return;
 
 	obs_property_t *button = obs_properties_get(props, VST_OPEN_BUTTON);
 	if (button)
 		data->opened = obs_property_button_clicked(button, source);
 
 	obs_properties_destroy(props);
-	return !data->opened;
 }
 
 static bool open_vst_interface(obs_source_t *parent, const char *filter_name)

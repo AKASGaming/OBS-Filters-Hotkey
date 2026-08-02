@@ -18,10 +18,9 @@ the Free Software Foundation; either version 2 of the License, or
 #define VST_OPEN_BUTTON "open_vst_settings"
 
 #define SETTING_TARGET "target"
-#define SETTING_FILTER_NAME "filter_name"
 
 #define TARGET_FILTERS_WINDOW "filters_window"
-#define TARGET_VST_INTERFACE "vst_interface"
+#define TARGET_VST_INTERFACE_LEGACY "vst_interface"
 
 struct open_filters_data {
 	obs_source_t *context;
@@ -29,13 +28,15 @@ struct open_filters_data {
 	obs_hotkey_id hotkey_id;
 	char *hotkey_name;
 	char *target_mode;
-	char *filter_name;
+	char *legacy_filter_name;
 	bool hotkey_registered;
 };
 
-struct vst_enum_data {
-	const char *filter_name;
-	bool opened;
+struct find_filter_data {
+	const char *uuid;
+	const char *legacy_name;
+	bool find_first_vst;
+	obs_source_t *found;
 };
 
 static const char *open_filters_get_name(void *unused)
@@ -44,44 +45,67 @@ static const char *open_filters_get_name(void *unused)
 	return obs_module_text("OpenFiltersHotkey");
 }
 
-static bool filter_name_matches(const char *desired, const char *actual)
+static bool is_self_filter(obs_source_t *source)
 {
-	if (!desired || !*desired)
-		return true;
-	return actual && strcmp(desired, actual) == 0;
+	const char *id = obs_source_get_id(source);
+	return strcmp(id, "open_filters_hotkey_audio") == 0 || strcmp(id, "open_filters_hotkey_video") == 0 ||
+	       strcmp(id, "open_filters_hotkey_audio_lua") == 0 || strcmp(id, "open_filters_hotkey_video_lua") == 0;
 }
 
-static void enum_vst_filter(obs_source_t *parent, obs_source_t *source, void *param)
+static bool open_vst_interface(obs_source_t *filter_source)
 {
-	struct vst_enum_data *data = param;
+	obs_properties_t *props = obs_source_properties(filter_source);
+	if (!props)
+		return false;
+
+	bool opened = false;
+	obs_property_t *button = obs_properties_get(props, VST_OPEN_BUTTON);
+	if (button)
+		opened = obs_property_button_clicked(button, filter_source);
+
+	obs_properties_destroy(props);
+	return opened;
+}
+
+static void enum_find_filter(obs_source_t *parent, obs_source_t *source, void *param)
+{
+	struct find_filter_data *data = param;
 
 	UNUSED_PARAMETER(parent);
 
-	if (data->opened)
+	if (data->found)
 		return;
 
-	if (strcmp(obs_source_get_id(source), VST_FILTER_ID) != 0)
+	if (data->find_first_vst) {
+		if (strcmp(obs_source_get_id(source), VST_FILTER_ID) != 0)
+			return;
+		if (data->legacy_name && *data->legacy_name &&
+		    strcmp(obs_source_get_name(source), data->legacy_name) != 0)
+			return;
+		data->found = source;
 		return;
+	}
 
-	if (!filter_name_matches(data->filter_name, obs_source_get_name(source)))
-		return;
-
-	obs_properties_t *props = obs_source_properties(source);
-	if (!props)
-		return;
-
-	obs_property_t *button = obs_properties_get(props, VST_OPEN_BUTTON);
-	if (button)
-		data->opened = obs_property_button_clicked(button, source);
-
-	obs_properties_destroy(props);
+	if (data->uuid && strcmp(obs_source_get_uuid(source), data->uuid) == 0)
+		data->found = source;
 }
 
-static bool open_vst_interface(obs_source_t *parent, const char *filter_name)
+static obs_source_t *find_filter_by_uuid(obs_source_t *parent, const char *uuid)
 {
-	struct vst_enum_data data = {.filter_name = filter_name, .opened = false};
-	obs_source_enum_filters(parent, enum_vst_filter, &data);
-	return data.opened;
+	struct find_filter_data data = {.uuid = uuid, .found = NULL};
+	obs_source_enum_filters(parent, enum_find_filter, &data);
+	return data.found;
+}
+
+static obs_source_t *find_legacy_vst(obs_source_t *parent, const char *filter_name)
+{
+	struct find_filter_data data = {
+		.legacy_name = filter_name,
+		.find_first_vst = true,
+		.found = NULL,
+	};
+	obs_source_enum_filters(parent, enum_find_filter, &data);
+	return data.found;
 }
 
 static void open_target(struct open_filters_data *filter)
@@ -91,12 +115,29 @@ static void open_target(struct open_filters_data *filter)
 
 	const char *target = filter->target_mode && *filter->target_mode ? filter->target_mode : TARGET_FILTERS_WINDOW;
 
-	if (strcmp(target, TARGET_VST_INTERFACE) == 0) {
-		if (open_vst_interface(filter->target, filter->filter_name))
+	if (strcmp(target, TARGET_FILTERS_WINDOW) == 0) {
+		obs_frontend_open_source_filters(filter->target);
+		return;
+	}
+
+	obs_source_t *filter_source = NULL;
+
+	if (strcmp(target, TARGET_VST_INTERFACE_LEGACY) == 0)
+		filter_source = find_legacy_vst(filter->target, filter->legacy_filter_name);
+	else
+		filter_source = find_filter_by_uuid(filter->target, target);
+
+	if (!filter_source) {
+		obs_frontend_open_source_filters(filter->target);
+		return;
+	}
+
+	if (strcmp(obs_source_get_id(filter_source), VST_FILTER_ID) == 0) {
+		if (open_vst_interface(filter_source))
 			return;
 	}
 
-	obs_frontend_open_source_filters(filter->target);
+	obs_frontend_open_source_properties(filter_source);
 }
 
 static void open_filters_hotkey_pressed(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
@@ -113,13 +154,13 @@ static void open_filters_hotkey_pressed(void *data, obs_hotkey_id id, obs_hotkey
 static void update_target_settings(struct open_filters_data *filter, obs_data_t *settings)
 {
 	const char *target = obs_data_get_string(settings, SETTING_TARGET);
-	const char *filter_name = obs_data_get_string(settings, SETTING_FILTER_NAME);
+	const char *legacy_name = obs_data_get_string(settings, "filter_name");
 
 	bfree(filter->target_mode);
-	bfree(filter->filter_name);
+	bfree(filter->legacy_filter_name);
 
 	filter->target_mode = bstrdup(target && *target ? target : TARGET_FILTERS_WINDOW);
-	filter->filter_name = bstrdup(filter_name ? filter_name : "");
+	filter->legacy_filter_name = bstrdup(legacy_name ? legacy_name : "");
 }
 
 static void register_open_filters_hotkey(struct open_filters_data *filter, obs_data_t *settings)
@@ -179,13 +220,14 @@ static void open_filters_destroy(void *data)
 	struct open_filters_data *filter = data;
 	bfree(filter->hotkey_name);
 	bfree(filter->target_mode);
-	bfree(filter->filter_name);
+	bfree(filter->legacy_filter_name);
 	bfree(filter);
 }
 
 static void open_filters_save(void *data, obs_data_t *settings)
 {
 	struct open_filters_data *filter = data;
+
 	if (!filter->hotkey_registered || filter->hotkey_id == OBS_INVALID_HOTKEY_ID || !filter->hotkey_name)
 		return;
 
@@ -203,18 +245,45 @@ static void open_filters_video_tick(void *data, float seconds)
 		register_open_filters_hotkey(filter, obs_source_get_settings(filter->context));
 }
 
-static obs_properties_t *open_filters_properties(void *unused)
+static void enum_add_filter_option(obs_source_t *parent, obs_source_t *source, void *param)
 {
-	UNUSED_PARAMETER(unused);
+	obs_property_t *list = param;
 
+	UNUSED_PARAMETER(parent);
+
+	if (is_self_filter(source))
+		return;
+
+	const char *name = obs_source_get_name(source);
+	const char *uuid = obs_source_get_uuid(source);
+	if (!name || !uuid)
+		return;
+
+	struct dstr label = {0};
+	if (strcmp(obs_source_get_id(source), VST_FILTER_ID) == 0)
+		dstr_printf(&label, "%s (%s)", name, obs_module_text("OpenFiltersTargetVstSuffix"));
+	else
+		dstr_copy(&label, name);
+
+	obs_property_list_add_string(list, label.array, uuid);
+	dstr_free(&label);
+}
+
+static obs_properties_t *open_filters_properties(void *data)
+{
+	struct open_filters_data *filter = data;
 	obs_properties_t *props = obs_properties_create();
 
 	obs_property_t *target = obs_properties_add_list(props, SETTING_TARGET, obs_module_text("OpenFiltersTarget"),
 							 OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 	obs_property_list_add_string(target, obs_module_text("OpenFiltersTargetWindow"), TARGET_FILTERS_WINDOW);
-	obs_property_list_add_string(target, obs_module_text("OpenFiltersTargetVst"), TARGET_VST_INTERFACE);
 
-	obs_properties_add_text(props, SETTING_FILTER_NAME, obs_module_text("OpenFiltersFilterName"), OBS_TEXT_DEFAULT);
+	if (filter && filter->context) {
+		obs_source_t *parent = obs_filter_get_parent(filter->context);
+		if (parent)
+			obs_source_enum_filters(parent, enum_add_filter_option, target);
+	}
+
 	obs_properties_add_text(props, "info", obs_module_text("OpenFiltersHotkeyInfo"), OBS_TEXT_INFO);
 	return props;
 }

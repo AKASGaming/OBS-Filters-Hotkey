@@ -1,6 +1,6 @@
 # OBS Filters Hotkey
 
-Open a source's filter list with a keyboard shortcut. For example, press **Q** to jump straight to the delay and other effects on your microphone.
+Open a source's filters window — or jump straight into a specific filter — with a keyboard shortcut. For example, press **Q** for your mic's filter list, or **W** to open Noise Suppression directly.
 
 ## Quick start (no build)
 
@@ -56,30 +56,27 @@ See the [OBS plugin template wiki](https://github.com/obsproject/obs-plugintempl
 ## Usage
 
 1. Add the **Open Filters Hotkey** filter to any audio or video source.
-2. Assign a hotkey in **Settings → Hotkeys** (search for "Open Filters").
-3. Press the hotkey to open that source's filter dialog.
+2. In its settings, set **Open target**:
+   - **Filters window** — opens the full filters dialog for that source
+   - **A specific filter** — opens that filter directly (Noise Suppression, Gain, etc.)
+   - **A VST filter** — opens the VST plugin GUI directly
+3. Assign a hotkey in **Settings → Hotkeys** (search for "Open Filters").
+4. Press the hotkey to jump straight to the chosen target.
+
+The dropdown lists every filter currently on the source (except this hotkey filter itself). Re-open the filter settings after adding/removing filters to refresh the list.
 
 The filter is a pass-through — it does not modify audio or video. You can add one instance per source; each gets its own hotkey binding.
 
-### Open a VST plugin interface directly
-
-OBS has no public API to open a specific filter's settings panel, but VST 2.x filters expose an **Open Plug-In Interface** button that can be triggered programmatically.
-
-1. Add **Open Filters Hotkey** to your source (e.g. mic).
-2. In the filter settings, set **Open target** to **VST plugin interface**.
-3. If you have multiple VST filters on the same source, enter the filter's display name under **Filter name**.
-4. Bind your hotkey in **Settings → Hotkeys**.
-
-Pressing the hotkey opens the VST GUI directly — no need to navigate the filters window first. If no matching VST filter is found, it falls back to opening the filters window.
-
-**Note:** The VST must already be loaded (a plugin selected in the VST filter dropdown). This works with OBS's built-in **VST 2.x Plug-in** filter only, not VST3 hosts like atkAudio.
+**Note:** VST targets use OBS's built-in **VST 2.x Plug-in** filter only (not VST3 hosts like atkAudio). The VST must already have a plugin selected.
 
 ## Example
 
-| Source        | Hotkey | Action                          |
-|---------------|--------|---------------------------------|
-| Mic/Aux       | Q      | Opens mic filters (Delay, etc.) |
-| Webcam        | F      | Opens webcam filters            |
+| Source  | Open target         | Hotkey | Action                                      |
+|---------|---------------------|--------|---------------------------------------------|
+| Mic/Aux | Filters window      | Q      | Opens mic filters dialog                    |
+| Mic/Aux | Noise Suppression   | W      | Opens Noise Suppression properties          |
+| Mic/Aux | My EQ (VST interface) | E    | Opens that VST plugin GUI                   |
+| Webcam  | Filters window      | F      | Opens webcam filters                        |
 
 ## License
 

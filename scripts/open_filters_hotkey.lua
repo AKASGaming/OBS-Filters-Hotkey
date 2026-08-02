@@ -1,5 +1,9 @@
 -- OBS Filters Hotkey (Lua script — no build required)
 -- Add via Tools → Scripts, then add the filter to any source.
+--
+-- Open target:
+--   • Filters window — opens the source Filters dialog
+--   • A specific filter — opens that dialog focused on the filter's page
 
 local obs = obslua
 local bit = require("bit")
@@ -15,6 +19,8 @@ local SELF_IDS = {
   open_filters_hotkey_audio = true,
   open_filters_hotkey_video = true,
 }
+
+local pending_restores = {}
 
 local function is_self_filter(source)
   local id = obs.obs_source_get_id(source)
@@ -36,10 +42,27 @@ local function open_vst_interface(filter_source)
   return opened
 end
 
--- Open the parent filters dialog focused on a specific filter.
--- OBS always selects the first async (or first effect) filter on open, so we
--- briefly move the target to index 0, open the dialog, then restore order.
--- Reordering preserves the selected filter identity in the UI.
+local function cancel_pending_restore(key)
+  local pending = pending_restores[key]
+  if not pending then
+    return
+  end
+
+  if pending.timer then
+    obs.timer_remove(pending.timer)
+  end
+  if pending.filter then
+    obs.obs_source_release(pending.filter)
+  end
+  if pending.parent then
+    obs.obs_source_release(pending.parent)
+  end
+  pending_restores[key] = nil
+end
+
+-- OBS queues the Filters dialog onto the UI thread, and always selects the
+-- first async/effect filter on open. Move the target to index 0, open, then
+-- restore order after a short delay so selection sticks to that filter.
 local function open_filters_to_filter(parent, filter_source)
   local idx = obs.obs_source_filter_get_index(parent, filter_source)
   if idx == nil or idx < 0 then
@@ -47,19 +70,59 @@ local function open_filters_to_filter(parent, filter_source)
     return
   end
 
+  local key = tostring(parent) .. ":" .. tostring(filter_source)
+  cancel_pending_restore(key)
+
   if idx ~= 0 then
     obs.obs_source_filter_set_index(parent, filter_source, 0)
   end
 
   obs.obs_frontend_open_source_filters(parent)
 
-  if idx ~= 0 then
-    obs.obs_source_filter_set_index(parent, filter_source, idx)
+  if idx == 0 then
+    return
   end
+
+  local parent_ref = obs.obs_source_get_ref(parent)
+  local filter_ref = obs.obs_source_get_ref(filter_source)
+  if not parent_ref or not filter_ref then
+    if parent_ref then
+      obs.obs_source_release(parent_ref)
+    end
+    if filter_ref then
+      obs.obs_source_release(filter_ref)
+    end
+    obs.obs_source_filter_set_index(parent, filter_source, idx)
+    return
+  end
+
+  local restore
+  restore = function()
+    local pending = pending_restores[key]
+    if not pending then
+      return
+    end
+
+    obs.timer_remove(restore)
+    obs.obs_source_filter_set_index(pending.parent, pending.filter, pending.idx)
+    obs.obs_source_release(pending.filter)
+    obs.obs_source_release(pending.parent)
+    pending_restores[key] = nil
+  end
+
+  pending_restores[key] = {
+    parent = parent_ref,
+    filter = filter_ref,
+    idx = idx,
+    timer = restore,
+  }
+
+  -- Delay long enough for the queued Filters dialog to open and select item 0.
+  obs.timer_add(restore, 150)
 end
 
-local function find_filter_by_uuid(parent, uuid)
-  if parent == nil or uuid == nil or uuid == "" then
+local function find_filter(parent, target)
+  if parent == nil or target == nil or target == "" then
     return nil
   end
 
@@ -70,7 +133,9 @@ local function find_filter_by_uuid(parent, uuid)
 
   local found = nil
   for _, f in ipairs(filters) do
-    if obs.obs_source_get_uuid(f) == uuid then
+    local uuid = obs.obs_source_get_uuid(f)
+    local name = obs.obs_source_get_name(f)
+    if uuid == target or name == target then
       found = obs.obs_source_get_ref(f)
       break
     end
@@ -113,7 +178,7 @@ local function open_target(parent, settings)
     return
   end
 
-  local filter_source = find_filter_by_uuid(parent, target)
+  local filter_source = find_filter(parent, target)
   if filter_source == nil then
     obs.obs_frontend_open_source_filters(parent)
     return
@@ -267,6 +332,12 @@ end
 
 function script_description()
   return [[Add the "Open Filters Hotkey" filter to any source, then bind a key under Settings → Hotkeys. Use Open target to jump to the filters window or open directly to a specific filter's page (e.g. Noise Suppression).]]
+end
+
+function script_unload()
+  for key, _ in pairs(pending_restores) do
+    cancel_pending_restore(key)
+  end
 end
 
 obs.obs_register_source(make_filter_info("open_filters_hotkey_audio_lua", obs.OBS_SOURCE_AUDIO))

@@ -58,25 +58,21 @@ See the [OBS plugin template wiki](https://github.com/obsproject/obs-plugintempl
 1. Add the **Open Filters Hotkey** filter to any audio or video source.
 2. In its settings, set **Open target**:
    - **Filters window** — opens the full filters dialog for that source
-   - **A specific filter** — opens that filter directly (Noise Suppression, Gain, etc.)
-   - **A VST filter** — opens the VST plugin GUI directly
+   - **A specific filter** (e.g. Noise Suppression) — opens the filters dialog already focused on that filter's page
 3. Assign a hotkey in **Settings → Hotkeys** (search for "Open Filters").
-4. Press the hotkey to jump straight to the chosen target.
+4. Press the hotkey to jump straight there.
 
 The dropdown lists every filter currently on the source (except this hotkey filter itself). Re-open the filter settings after adding/removing filters to refresh the list.
 
 The filter is a pass-through — it does not modify audio or video. You can add one instance per source; each gets its own hotkey binding.
 
-**Note:** VST targets use OBS's built-in **VST 2.x Plug-in** filter only (not VST3 hosts like atkAudio). The VST must already have a plugin selected.
-
 ## Example
 
-| Source  | Open target         | Hotkey | Action                                      |
-|---------|---------------------|--------|---------------------------------------------|
-| Mic/Aux | Filters window      | Q      | Opens mic filters dialog                    |
-| Mic/Aux | Noise Suppression   | W      | Opens Noise Suppression properties          |
-| Mic/Aux | My EQ (VST interface) | E    | Opens that VST plugin GUI                   |
-| Webcam  | Filters window      | F      | Opens webcam filters                        |
+| Source  | Open target       | Hotkey | Action                                              |
+|---------|-------------------|--------|-----------------------------------------------------|
+| Mic/Aux | Filters window    | Q      | Opens mic filters dialog                            |
+| Mic/Aux | Noise Suppression | W      | Opens mic filters dialog on Noise Suppression       |
+| Webcam  | Color Correction  | F      | Opens webcam filters dialog on Color Correction     |
 
 ## License
 

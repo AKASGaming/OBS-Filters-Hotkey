@@ -77,7 +77,7 @@ static bool open_vst_interface(obs_source_t *filter_source)
 
 static void enum_find_filter(obs_source_t *parent, obs_source_t *source, void *param)
 {
-	struct find_filter_data *data = param;
+	struct find_filter_data *data = static_cast<struct find_filter_data *>(param);
 
 	UNUSED_PARAMETER(parent);
 

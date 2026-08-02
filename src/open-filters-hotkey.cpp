@@ -224,6 +224,13 @@ static void open_target(struct open_filters_data *filter)
 		return;
 	}
 
+	if (strcmp(obs_source_get_id(filter_source), VST_FILTER_ID) == 0) {
+		if (open_vst_interface(filter_source))
+			return;
+		obs_frontend_open_source_filters(filter->target);
+		return;
+	}
+
 	open_filters_to_filter(filter->target, filter_source);
 }
 
@@ -261,7 +268,8 @@ static void register_open_filters_hotkey(struct open_filters_data *filter, obs_d
 
 	const char *parent_name = obs_source_get_name(parent);
 	const char *parent_uuid = obs_source_get_uuid(parent);
-	if (!parent_name || !parent_uuid)
+	const char *self_uuid = obs_source_get_uuid(filter->context);
+	if (!parent_name || !parent_uuid || !self_uuid)
 		return;
 
 	filter->target = parent;
@@ -269,8 +277,26 @@ static void register_open_filters_hotkey(struct open_filters_data *filter, obs_d
 
 	struct dstr hotkey_name = {0};
 	struct dstr description = {0};
-	dstr_printf(&hotkey_name, "%s%s", HOTKEY_PREFIX, parent_uuid);
-	dstr_printf(&description, "%s (%s)", obs_module_text("OpenFiltersHotkeyAction"), parent_name);
+	struct dstr target_label = {0};
+
+	/* Unique per hotkey-filter instance so multiple bindings on one source work. */
+	dstr_printf(&hotkey_name, "%s%s;%s", HOTKEY_PREFIX, parent_uuid, self_uuid);
+
+	const char *target = filter->target_mode;
+	if (!target || !*target || strcmp(target, TARGET_FILTERS_WINDOW) == 0) {
+		dstr_copy(&target_label, obs_module_text("OpenFiltersTargetWindow"));
+	} else if (strcmp(target, TARGET_VST_INTERFACE_LEGACY) == 0) {
+		dstr_copy(&target_label, obs_module_text("OpenFiltersTargetVstSuffix"));
+	} else {
+		obs_source_t *filter_source = find_filter_by_uuid(parent, target);
+		if (filter_source)
+			dstr_copy(&target_label, obs_source_get_name(filter_source));
+		else
+			dstr_copy(&target_label, obs_module_text("OpenFiltersHotkeyAction"));
+	}
+
+	dstr_printf(&description, "%s (%s) — %s", obs_module_text("OpenFiltersHotkeyAction"), parent_name,
+		    target_label.array);
 
 	filter->hotkey_id =
 		obs_hotkey_register_frontend(hotkey_name.array, description.array, open_filters_hotkey_pressed, filter);
@@ -284,6 +310,7 @@ static void register_open_filters_hotkey(struct open_filters_data *filter, obs_d
 
 	dstr_free(&hotkey_name);
 	dstr_free(&description);
+	dstr_free(&target_label);
 }
 
 static void *open_filters_create(obs_data_t *settings, obs_source_t *source)
@@ -347,7 +374,14 @@ static void enum_add_filter_option(obs_source_t *parent, obs_source_t *source, v
 	if (!name || !uuid)
 		return;
 
-	obs_property_list_add_string(list, name, uuid);
+	struct dstr label = {0};
+	if (strcmp(obs_source_get_id(source), VST_FILTER_ID) == 0)
+		dstr_printf(&label, "%s (%s)", name, obs_module_text("OpenFiltersTargetVstSuffix"));
+	else
+		dstr_copy(&label, name);
+
+	obs_property_list_add_string(list, label.array, uuid);
+	dstr_free(&label);
 }
 
 static obs_properties_t *open_filters_properties(void *data)

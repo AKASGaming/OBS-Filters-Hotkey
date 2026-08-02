@@ -56,23 +56,25 @@ See the [OBS plugin template wiki](https://github.com/obsproject/obs-plugintempl
 ## Usage
 
 1. Add the **Open Filters Hotkey** filter to any audio or video source.
-2. In its settings, set **Open target**:
-   - **Filters window** — opens the full filters dialog for that source
-   - **A specific filter** (e.g. Noise Suppression) — opens the filters dialog already focused on that filter's page
-3. Assign a hotkey in **Settings → Hotkeys** (search for "Open Filters").
+   - Add **one instance per hotkey** you want (e.g. one for Noise Suppression, one for VST).
+2. In each instance, set **Open target**:
+   - **Filters window** — opens the full filters dialog
+   - **A VST filter (VST GUI)** — opens that VST plug-in interface directly
+   - **Any other filter** — opens the Filters dialog focused on that filter's page
+3. Assign each instance a hotkey in **Settings → Hotkeys** (search for "Open Filters").
 4. Press the hotkey to jump straight there.
 
-The dropdown lists every filter currently on the source (except this hotkey filter itself). Re-open the filter settings after adding/removing filters to refresh the list.
+The dropdown lists every filter currently on the source (except this hotkey filter itself). Re-open the filter settings after adding/removing filters to refresh the list. After adding new hotkey instances, re-check **Settings → Hotkeys** — each instance gets its own binding.
 
-The filter is a pass-through — it does not modify audio or video. You can add one instance per source; each gets its own hotkey binding.
+The filter is a pass-through — it does not modify audio or video.
 
 ## Example
 
-| Source  | Open target       | Hotkey | Action                                              |
-|---------|-------------------|--------|-----------------------------------------------------|
-| Mic/Aux | Filters window    | Q      | Opens mic filters dialog                            |
-| Mic/Aux | Noise Suppression | W      | Opens mic filters dialog on Noise Suppression       |
-| Webcam  | Color Correction  | F      | Opens webcam filters dialog on Color Correction     |
+| Source  | Open Filters Hotkey instance | Open target       | Hotkey | Action                                        |
+|---------|------------------------------|-------------------|--------|-----------------------------------------------|
+| Mic/Aux | Instance A                   | Filters window    | Q      | Opens mic filters dialog                      |
+| Mic/Aux | Instance B                   | Noise Suppression | W      | Opens mic filters on Noise Suppression        |
+| Mic/Aux | Instance C                   | My EQ (VST GUI)   | E      | Opens that VST plug-in GUI                    |
 
 ## License
 

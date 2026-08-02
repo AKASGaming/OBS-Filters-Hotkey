@@ -1,9 +1,13 @@
 -- OBS Filters Hotkey (Lua script — no build required)
 -- Add via Tools → Scripts, then add the filter to any source.
 --
+-- Add one "Open Filters Hotkey" filter per hotkey you want.
+-- Each instance gets its own hotkey under Settings → Hotkeys.
+--
 -- Open target:
 --   • Filters window — opens the source Filters dialog
---   • A specific filter — opens that dialog focused on the filter's page
+--   • A VST filter — opens the VST plug-in GUI directly
+--   • Any other filter — opens the Filters dialog focused on that filter
 
 local obs = obslua
 local bit = require("bit")
@@ -23,8 +27,31 @@ local SELF_IDS = {
 local pending_restores = {}
 
 local function is_self_filter(source)
-  local id = obs.obs_source_get_id(source)
-  return SELF_IDS[id] == true
+  return SELF_IDS[obs.obs_source_get_id(source)] == true
+end
+
+local function is_vst_filter(source)
+  return obs.obs_source_get_id(source) == VST_FILTER_ID
+end
+
+local function source_ref(source)
+  if source == nil then
+    return nil
+  end
+  if obs.obs_source_get_ref ~= nil then
+    return obs.obs_source_get_ref(source)
+  end
+  return source
+end
+
+local function source_release(source)
+  if source == nil or obs.obs_source_release == nil then
+    return
+  end
+  -- Only release when get_ref exists (we took an extra reference).
+  if obs.obs_source_get_ref ~= nil then
+    obs.obs_source_release(source)
+  end
 end
 
 local function open_vst_interface(filter_source)
@@ -36,7 +63,7 @@ local function open_vst_interface(filter_source)
   local btn = obs.obs_properties_get(props, VST_OPEN_BUTTON)
   local opened = false
   if btn then
-    opened = obs.obs_property_button_clicked(btn, filter_source)
+    opened = obs.obs_property_button_clicked(btn, filter_source) == true
   end
   obs.obs_properties_destroy(props)
   return opened
@@ -51,48 +78,50 @@ local function cancel_pending_restore(key)
   if pending.timer then
     obs.timer_remove(pending.timer)
   end
-  if pending.filter then
-    obs.obs_source_release(pending.filter)
-  end
-  if pending.parent then
-    obs.obs_source_release(pending.parent)
-  end
+  source_release(pending.filter)
+  source_release(pending.parent)
   pending_restores[key] = nil
 end
 
--- OBS queues the Filters dialog onto the UI thread, and always selects the
--- first async/effect filter on open. Move the target to index 0, open, then
--- restore order after a short delay so selection sticks to that filter.
+local function open_filters_window(parent)
+  obs.obs_frontend_open_source_filters(parent)
+end
+
+-- Focus a non-VST filter page inside the Filters dialog.
+-- OBS queues dialog creation and selects the first filter on open, so we
+-- briefly move the target to index 0, open, then restore order after a delay.
 local function open_filters_to_filter(parent, filter_source)
-  local idx = obs.obs_source_filter_get_index(parent, filter_source)
-  if idx == nil or idx < 0 then
-    obs.obs_frontend_open_source_filters(parent)
+  local has_index_api = obs.obs_source_filter_get_index ~= nil and obs.obs_source_filter_set_index ~= nil
+  if not has_index_api then
+    open_filters_window(parent)
     return
   end
 
-  local key = tostring(parent) .. ":" .. tostring(filter_source)
+  local ok, idx = pcall(obs.obs_source_filter_get_index, parent, filter_source)
+  if not ok or idx == nil or idx < 0 then
+    open_filters_window(parent)
+    return
+  end
+
+  local key = tostring(obs.obs_source_get_uuid(parent)) .. ":" .. tostring(obs.obs_source_get_uuid(filter_source))
   cancel_pending_restore(key)
 
   if idx ~= 0 then
-    obs.obs_source_filter_set_index(parent, filter_source, 0)
+    pcall(obs.obs_source_filter_set_index, parent, filter_source, 0)
   end
 
-  obs.obs_frontend_open_source_filters(parent)
+  open_filters_window(parent)
 
   if idx == 0 then
     return
   end
 
-  local parent_ref = obs.obs_source_get_ref(parent)
-  local filter_ref = obs.obs_source_get_ref(filter_source)
+  local parent_ref = source_ref(parent)
+  local filter_ref = source_ref(filter_source)
   if not parent_ref or not filter_ref then
-    if parent_ref then
-      obs.obs_source_release(parent_ref)
-    end
-    if filter_ref then
-      obs.obs_source_release(filter_ref)
-    end
-    obs.obs_source_filter_set_index(parent, filter_source, idx)
+    source_release(parent_ref)
+    source_release(filter_ref)
+    pcall(obs.obs_source_filter_set_index, parent, filter_source, idx)
     return
   end
 
@@ -104,9 +133,9 @@ local function open_filters_to_filter(parent, filter_source)
     end
 
     obs.timer_remove(restore)
-    obs.obs_source_filter_set_index(pending.parent, pending.filter, pending.idx)
-    obs.obs_source_release(pending.filter)
-    obs.obs_source_release(pending.parent)
+    pcall(obs.obs_source_filter_set_index, pending.parent, pending.filter, pending.idx)
+    source_release(pending.filter)
+    source_release(pending.parent)
     pending_restores[key] = nil
   end
 
@@ -116,9 +145,7 @@ local function open_filters_to_filter(parent, filter_source)
     idx = idx,
     timer = restore,
   }
-
-  -- Delay long enough for the queued Filters dialog to open and select item 0.
-  obs.timer_add(restore, 150)
+  obs.timer_add(restore, 200)
 end
 
 local function find_filter(parent, target)
@@ -133,16 +160,37 @@ local function find_filter(parent, target)
 
   local found = nil
   for _, f in ipairs(filters) do
-    local uuid = obs.obs_source_get_uuid(f)
-    local name = obs.obs_source_get_name(f)
-    if uuid == target or name == target then
-      found = obs.obs_source_get_ref(f)
-      break
+    if not is_self_filter(f) then
+      local uuid = obs.obs_source_get_uuid(f)
+      local name = obs.obs_source_get_name(f)
+      if uuid == target or name == target then
+        found = source_ref(f)
+        break
+      end
     end
   end
 
   obs.source_list_release(filters)
   return found
+end
+
+local function target_label(parent, target)
+  if target == nil or target == "" or target == TARGET_FILTERS_WINDOW then
+    return "Filters window"
+  end
+  if target == "vst_interface" then
+    return "VST plugin interface"
+  end
+
+  local filter_source = find_filter(parent, target)
+  if filter_source then
+    local name = obs.obs_source_get_name(filter_source)
+    source_release(filter_source)
+    if name and name ~= "" then
+      return name
+    end
+  end
+  return "Filters"
 end
 
 local function open_target(parent, settings)
@@ -152,17 +200,17 @@ local function open_target(parent, settings)
 
   local target = obs.obs_data_get_string(settings, "target")
   if target == nil or target == "" or target == TARGET_FILTERS_WINDOW then
-    obs.obs_frontend_open_source_filters(parent)
+    open_filters_window(parent)
     return
   end
 
-  -- Legacy: old "vst_interface" setting opens the first VST filter GUI.
+  -- Legacy target value from older script versions.
   if target == "vst_interface" then
     local filters = obs.obs_source_enum_filters(parent)
     if filters then
       local legacy_name = obs.obs_data_get_string(settings, "filter_name")
       for _, f in ipairs(filters) do
-        if obs.obs_source_get_id(f) == VST_FILTER_ID then
+        if is_vst_filter(f) then
           local name = obs.obs_source_get_name(f)
           if legacy_name == nil or legacy_name == "" or name == legacy_name then
             if open_vst_interface(f) then
@@ -174,18 +222,25 @@ local function open_target(parent, settings)
       end
       obs.source_list_release(filters)
     end
-    obs.obs_frontend_open_source_filters(parent)
+    open_filters_window(parent)
     return
   end
 
   local filter_source = find_filter(parent, target)
   if filter_source == nil then
-    obs.obs_frontend_open_source_filters(parent)
+    open_filters_window(parent)
     return
   end
 
-  open_filters_to_filter(parent, filter_source)
-  obs.obs_source_release(filter_source)
+  if is_vst_filter(filter_source) then
+    if not open_vst_interface(filter_source) then
+      open_filters_window(parent)
+    end
+  else
+    open_filters_to_filter(parent, filter_source)
+  end
+
+  source_release(filter_source)
 end
 
 local function populate_target_list(list, parent)
@@ -205,7 +260,11 @@ local function populate_target_list(list, parent)
     if not is_self_filter(f) then
       local name = obs.obs_source_get_name(f)
       local uuid = obs.obs_source_get_uuid(f)
-      obs.obs_property_list_add_string(list, name, uuid)
+      local label = name
+      if is_vst_filter(f) then
+        label = name .. " (VST GUI)"
+      end
+      obs.obs_property_list_add_string(list, label, uuid)
     end
   end
 
@@ -224,16 +283,22 @@ local function register_hotkey(filter, settings)
 
   local source_name = obs.obs_source_get_name(parent)
   local source_uuid = obs.obs_source_get_uuid(parent)
-  if not source_name or not source_uuid then
+  local self_uuid = obs.obs_source_get_uuid(filter.context)
+  if not source_name or not source_uuid or not self_uuid then
     return
   end
 
   filter.target = parent
-  filter.hotkey_name = HOTKEY_PREFIX .. source_uuid
+  -- Unique per hotkey-filter instance so multiple bindings on one source work.
+  filter.hotkey_name = HOTKEY_PREFIX .. source_uuid .. ";" .. self_uuid
+
+  local target = obs.obs_data_get_string(settings, "target")
+  local label = target_label(parent, target)
+  local description = "Open Filters (" .. source_name .. ") — " .. label
 
   filter.hotkey_id = obs.obs_hotkey_register_frontend(
     filter.hotkey_name,
-    "Open Filters (" .. source_name .. ")",
+    description,
     function(pressed)
       if pressed and filter.target and filter.loaded_settings then
         open_target(filter.target, filter.loaded_settings)
@@ -296,7 +361,7 @@ local function make_filter_info(id, output_flags)
     obs.obs_properties_add_text(
       props,
       "info",
-      "Pick the filters window, or a specific filter on this source. The hotkey opens that source's Filters dialog on the chosen filter's page. Assign a hotkey in Settings → Hotkeys.",
+      "Each Open Filters Hotkey instance has its own hotkey. VST targets open the plugin GUI; other filters open the Filters dialog on that filter's page. Rebind keys in Settings → Hotkeys after adding instances.",
       obs.OBS_TEXT_INFO
     )
     return props
@@ -331,7 +396,7 @@ local function make_filter_info(id, output_flags)
 end
 
 function script_description()
-  return [[Add the "Open Filters Hotkey" filter to any source, then bind a key under Settings → Hotkeys. Use Open target to jump to the filters window or open directly to a specific filter's page (e.g. Noise Suppression).]]
+  return [[Add an "Open Filters Hotkey" filter per shortcut you want. Set Open target to Filters window, a VST (opens the plugin GUI), or another filter (opens the Filters dialog on that page). Bind each instance under Settings → Hotkeys.]]
 end
 
 function script_unload()
